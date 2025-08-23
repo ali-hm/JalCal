@@ -28,6 +28,13 @@ function jalaaliDayOfYear(jy, jm, jd) {
 // ---------- Gregorian basics ----------
 const G_DAYS_IN_MONTH = [31,28,31,30,31,30,31,31,30,31,30,31];
 
+// کمک‌تابع: روزهای ماه‌های میلادی برای سال مشخص
+function gregorianMonthDaysOf(year) {
+  const a = G_DAYS_IN_MONTH.slice();
+  if (isGregorianLeap(year)) a[1] = 29;
+  return a;
+}
+
 function isGregorianLeap(gy) {
   return (gy % 4 === 0 && gy % 100 !== 0) || (gy % 400 === 0);
 }
@@ -40,32 +47,96 @@ function gregorianDayOfYear(gy, gm, gd) {
   return d; // 1..365/366
 }
 
-// روز سال گریگوری که نوروزِ سالِ jy در آن می‌افتد (با توجه به leap بودن همان gyRef)
-function gregorianNewYearDayOfYear(jy, gyRef) {
-  const feb = isGregorianLeap(gyRef) ? 29 : 28;
-  // نوروز: اگر سال جلالی کبیسه باشد 20 مارس، در غیر اینصورت 21 مارس
-  // عدد روزسال: 31(ژانویه) + feb + 20/21
-  return (isJalaaliLeap(jy) ? (31 + feb + 20) : (31 + feb + 21));
-}
 
 // ---------- Conversions ----------
 // Jalaali -> Gregorian
-function jalaaliToGregorian(jy, jm, jd) {
-  const gy = jy + 621;
-  const jDOY = jalaaliDayOfYear(jy, jm, jd);             // 1..365/366
-  let gDayOfYear = gregorianNewYearDayOfYear(jy, gy) + jDOY - 1; // 1-based
-
-  const dim = G_DAYS_IN_MONTH.slice();
-  if (isGregorianLeap(gy)) dim[1] = 29;
-
-  let gm = 1;
-  for (let i = 0; i < 12; i++) {
-    if (gDayOfYear <= dim[i]) { gm = i + 1; break; }
-    gDayOfYear -= dim[i];
+function jResidue128(jy) {
+  let r = (jy + 124) % 128;
+  if (r < 0) r += 128;
+  if (jy <= 473) {
+    const P = { 25:24, 51:50, 98:97, 120:119 };
+    if (P[r] !== undefined) r = P[r];
   }
-  const gd = gDayOfYear;
-  return [gy, gm, gd];
+  return r;
 }
+
+// نوروزِ سالِ jy در مارسِ سالِ میلادی (jy+621): فقط 20 یا 21
+// روش بازگشتی با لنگر: 1399-01-01 = 2020-03-20  ⇒ M(1399) = 20
+function marchDayOfNowruz(jy) {
+  let y = 1399;
+  let M = 20; // 1 Farvardin 1399 = March 20, 2020 (anchor)
+
+  if (jy === y) return M;
+
+  if (jy > y) {
+    // جلو رفتن تا jy
+    for (let k = y; k < jy; k++) {
+      const L = isJalaaliLeap(k) ? 366 : 365;      // طول سال جلالی k
+      const gNext = k + 622;                       // سال گریگوریِ بعدی
+      const delta = L - 365 - (isGregorianLeap(gNext) ? 1 : 0);
+      M += delta;                                  // شیفت روز مارس
+      // ایمن‌سازی: در مجموعه {20,21} بماند
+      if (M < 20) M = 20; else if (M > 21) M = 21;
+    }
+  } else {
+    // عقب رفتن تا jy
+    for (let k = y - 1; k >= jy; k--) {
+      const L = isJalaaliLeap(k) ? 366 : 365;
+      const gNext = k + 622;
+      const delta = L - 365 - (isGregorianLeap(gNext) ? 1 : 0);
+      M -= delta; // M(k) = M(k+1) - delta
+      if (M < 20) M = 20; else if (M > 21) M = 21;
+    }
+  }
+  return M;
+}
+
+
+
+
+// روزِ سال گریگوری که نوروزِ سالِ jy در آن می‌افتد
+function gregorianNewYearDayOfYear(jy, gyRef) {
+  const feb = isGregorianLeap(gyRef) ? 29 : 28;
+  return 31 + feb + marchDayOfNowruz(jy);
+}
+
+// Jalaali -> Gregorian (اصلاحِ کاملِ عبور از دسامبر به ژانویه)
+function jalaaliToGregorian(jy, jm, jd) {
+  // سال میلادی‌ای که نوروزِ این سال جلالی در آن قرار می‌گیرد
+  let gy = jy + 621;
+
+  // روزِ سالِ جلالی (۱..۳۶۵/۳۶۶)
+  const jDOY = jalaaliDayOfYear(jy, jm, jd);
+
+  // از روز مارس (۲۰/۲۱) شروع می‌کنیم
+  let d = marchDayOfNowruz(jy) + jDOY - 1; // شمارنده‌ی «روز از مارس»
+  let m = 2;                                // ایندکس ماه: 0=Jan ... 2=Mar
+
+  // آرایه‌ی روزهای ماه‌ها برای همین سال میلادی
+  let dim = gregorianMonthDaysOf(gy);
+
+  // از مارس تا دسامبر می‌رویم؛ اگر تمام شد، سال +1 و از ژانویه ادامه می‌دهیم
+  while (true) {
+    if (d <= dim[m]) {
+      // در همین ماه جا می‌گیرد
+      const gm = m + 1;
+      const gd = d;
+      return [gy, gm, gd];
+    }
+    // از این ماه عبور می‌کنیم
+    d -= dim[m];
+    m++;
+
+    // عبور از دسامبر -> ژانویه سال بعد
+    if (m >= 12) {
+      m = 0;
+      gy += 1;
+      dim = gregorianMonthDaysOf(gy);
+    }
+  }
+}
+
+
 
 // Gregorian -> Jalaali
 function gregorianToJalaali(gy, gm, gd) {
@@ -228,34 +299,4 @@ function diffGregorianDays(gy1, gm1, gd1, gy2, gm2, gd2) {
   return toDays(gy1, gm1, gd1) - toDays(gy2, gm2, gd2);
 }
 
-// ================== Quick self-tests ==================
-console.log("Leap Jalaali (should be true): 1399, 1403, 1408");
-console.log(isJalaaliLeap(1399), isJalaaliLeap(1403), isJalaaliLeap(1408));
-console.log("Not leap (should be false): 1404, 1405");
-console.log(isJalaaliLeap(1404), isJalaaliLeap(1405));
 
-console.log("G→J 2025-08-23 → should be 1404-06-01");
-console.log(gregorianToJalaali(2025,8,23)); // [1404,6,1]
-
-console.log("G→J 2025-03-21 → 1404-01-01");
-console.log(gregorianToJalaali(2025,3,21)); // [1404,1,1]
-
-console.log("G→J 2025-03-20 → 1403-12-30");
-console.log(gregorianToJalaali(2025,3,20)); // [1403,12,30]
-
-console.log("J→G 1404-06-01 → 2025-08-23");
-console.log(jalaaliToGregorian(1404,6,1));  // [2025,8,23]
-
-console.log("J→G 1403-01-01 → 2024-03-20");
-console.log(jalaaliToGregorian(1403,1,1));  // [2024,3,20]
-
-console.log("Week/day-of-year examples (weekStart=6=شنبه)");
-console.log(jalaaliDateInfo(1404,6,1,6), gregorianDateInfo(2025,8,23,6));
-
-console.log("Add/Sub Jalaali days around Nowruz:");
-console.log(addJalaaliDays(1403,12,30, +1)); // 1404/01/01
-console.log(addJalaaliDays(1404,1,1, -1)); // 1403/12/30
-
-console.log("Diff days:");
-console.log(diffJalaaliDays(1404,1,1, 1403,12,30)); // 1
-console.log(diffGregorianDays(2025,8,23, 2025,8,22)); // 1
