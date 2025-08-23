@@ -61,35 +61,32 @@ function jResidue128(jy) {
 }
 
 // نوروزِ سالِ jy در مارسِ سالِ میلادی (jy+621): فقط 20 یا 21
-// روش بازگشتی با لنگر: 1399-01-01 = 2020-03-20  ⇒ M(1399) = 20
+// لنگر: 1399-01-01 = 2020-03-20 ⇒ M(1399)=20
 function marchDayOfNowruz(jy) {
   let y = 1399;
-  let M = 20; // 1 Farvardin 1399 = March 20, 2020 (anchor)
+  let M = 20;
 
   if (jy === y) return M;
 
   if (jy > y) {
-    // جلو رفتن تا jy
     for (let k = y; k < jy; k++) {
-      const L = isJalaaliLeap(k) ? 366 : 365;      // طول سال جلالی k
-      const gNext = k + 622;                       // سال گریگوریِ بعدی
+      const L = isJalaaliLeap(k) ? 366 : 365;
+      const gNext = k + 622; // سال گریگوریِ بعدی
       const delta = L - 365 - (isGregorianLeap(gNext) ? 1 : 0);
-      M += delta;                                  // شیفت روز مارس
-      // ایمن‌سازی: در مجموعه {20,21} بماند
-      if (M < 20) M = 20; else if (M > 21) M = 21;
+      M += delta; // ❗️بدون هیچ clamp
     }
+    return M;
   } else {
-    // عقب رفتن تا jy
     for (let k = y - 1; k >= jy; k--) {
       const L = isJalaaliLeap(k) ? 366 : 365;
       const gNext = k + 622;
       const delta = L - 365 - (isGregorianLeap(gNext) ? 1 : 0);
-      M -= delta; // M(k) = M(k+1) - delta
-      if (M < 20) M = 20; else if (M > 21) M = 21;
+      M -= delta; // M(k) = M(k+1) - delta، ❗️بدون clamp
     }
+    return M;
   }
-  return M;
 }
+
 
 
 
